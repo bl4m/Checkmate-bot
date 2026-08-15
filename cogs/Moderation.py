@@ -11,8 +11,11 @@ censored = [
   "aandu",
   "balatkar",
   "beti chod",
+  "bhenchod",
   "bhadva",
   "bhadve",
+  "bua choddd",
+  "bc",
   "bhandve",
   "bhootni ke",
   "bhosad",
@@ -85,7 +88,7 @@ censored = [
   "najayaz",
   "najayaz aulaad",
   "najayaz paidaish",
-  "paki",
+  "pakistan",
   "pataka",
   "patakha",
   "raand",
@@ -105,20 +108,40 @@ censored = [
   "tharki",
 ]
 
+# Set to True to let admins / anyone with Manage Messages past the filter.
+EXEMPT_MODERATORS = False
+
+LEET = {
+    '@': 'a', '4': 'a',
+    '1': 'i', '!': 'i', '|': 'i',
+    '$': 's', '5': 's',
+    '0': 'o'
+}
+
+
 def normalize(text:str) -> str:
     text = text.lower()
 
-    replacements = {
-        '@': 'a', '4': 'a',
-        '1': 'i', '!': 'i', '|': 'i',
-        '$': 's', '5': 's',
-        '0': 'o'
-    }
-    for symbol, letter in replacements.items():
+    for symbol, letter in LEET.items():
         text = text.replace(symbol, letter)
 
     text = re.sub(r"[^\w\s]", "", text)
     return text
+
+
+def strip_punctuation(text: str) -> str:
+    """Punctuation removed but no leet folding."""
+    return re.sub(r"[^\w\s]", "", text.lower())
+
+
+def candidates(text: str) -> tuple[str, str]:
+    """Both readings of a message.
+
+    Folding leet first turns trailing '!' into 'i', so "bhenchod!!" became
+    "bhenchodii" and slipped through. Checking the un-folded text as well
+    catches that without giving up on "b!tch" style evasion.
+    """
+    return normalize(text), strip_punctuation(text)
 
 class Moderation(commands.Cog):
     def __init__(self, bot):
@@ -129,6 +152,8 @@ class Moderation(commands.Cog):
         self.profanity_regex = re.compile(rf"\b({pattern})\b", re.IGNORECASE)
 
     def _is_exempt(self, message: discord.Message) -> bool:
+        if not EXEMPT_MODERATORS:
+            return False
         author = message.author
         if not isinstance(author, discord.Member):
             return False
@@ -148,9 +173,12 @@ class Moderation(commands.Cog):
         if self._is_exempt(message):
             return
 
-        cleaned_content = normalize(message.content)
+        match = None
+        for cleaned_content in candidates(message.content):
+            match = self.profanity_regex.search(cleaned_content)
+            if match:
+                break
 
-        match = self.profanity_regex.search(cleaned_content)
         if not match:
             return
 
