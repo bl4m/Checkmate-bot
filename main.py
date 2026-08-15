@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import database  # Initializing database
+from settings import LFT_DB_PATH
 from utils import COGS, DISCORD_API_TOKEN
 
 logger = getLogger(__name__)
@@ -63,7 +64,7 @@ class Bot(commands.Bot):
 
 
 async def setup_lft_db():
-    async with aiosqlite.connect("lft.db") as db:
+    async with aiosqlite.connect(LFT_DB_PATH) as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS lft_users (
                 discord_id INTEGER PRIMARY KEY

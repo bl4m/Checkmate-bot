@@ -1,0 +1,26 @@
+# Secrets must never be baked into an image layer; compose passes them at runtime.
+.env
+.env.*
+
+# VCS / tooling
+.git
+.gitignore
+.python-version
+.venv
+__pycache__/
+*.py[cod]
+*.egg-info
+
+# Local state, not build input
+app.log
+lft.db
+data/
+
+# Not needed at runtime
+Dockerfile
+.dockerignore
+docker-compose.yml
+README.md
+test.py
+populate.py
+populate.json

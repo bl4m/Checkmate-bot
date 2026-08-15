@@ -3,6 +3,22 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: checkmate-bot:latest
+    container_name: checkmate-bot
     env_file:
       - .env
+    environment:
+      # Keep the LFT sqlite file on the volume, not in the container layer.
+      LFT_DB_PATH: /app/data/lft.db
+    volumes:
+      - lft-data:/app/data
     restart: unless-stopped
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  lft-data:

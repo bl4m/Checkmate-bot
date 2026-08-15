@@ -4,11 +4,12 @@ import aiosqlite
 import discord
 
 from database import teams
+from settings import LFT_DB_PATH
 from views.utils import create_failure_embed, create_success_embed
 
 logger = getLogger(__name__)
 
-LFT_DB = "lft.db"
+LFT_DB = LFT_DB_PATH
 MAX_TEAM_SIZE = 4
 
 

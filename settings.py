@@ -16,6 +16,8 @@ def _get_int(name: str, default: int | None = None) -> int | None:
 
 
 EVENT_NAME = "Somnium"
+# Overridden in Docker so the file lands on a volume and survives restarts.
+LFT_DB_PATH = getenv("LFT_DB_PATH", "lft.db")
 CATEGORY_NAME = getenv("VOICE_CATEGORY_NAME", "SOMNIUM VOICE CHANNELS")
 CATEGORY_FALLBACK = getenv("CATEGORY_FALLBACK_NAME", "SOMNIUM")
 TEAM_CHANNEL = _get_int("TEAM_CHANNEL")
