@@ -1,0 +1,113 @@
+[
+  {
+    "team_code": "A1B2C3D4",
+    "team_name": "Red Raptors",
+    "players": [
+      {
+        "player_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "name": "Alice Johnson",
+        "email": "alice.johnson@thapar.edu",
+        "discord_id": "701059544574591006",
+        "rollno": "21CS1001",
+        "is_hacker": true,
+        "is_wizard": false
+      },
+      {
+        "player_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+        "name": "floatingcomet62",
+        "email": "bob.singh@thapar.edu",
+        "discord_id": "floatingcomet62",
+        "rollno": "21CS1002",
+        "is_hacker": false,
+        "is_wizard": true
+      },
+      {
+        "player_id": "9b0d82f4-ad5f-47e8-a4a7-43168fcf7332",
+        "name": "Creepy Code",
+        "email": "charlie.kumar@thapar.edu",
+        "discord_id": "creepy_code07",
+        "rollno": "21CS1003",
+        "is_hacker": true,
+        "is_wizard": false
+      }
+    ],
+    "team_leader_email": "alice.johnson@thapar.edu"
+  },
+  {
+    "team_code": "DEADBEEF",
+    "team_name": "Blue Buffs",
+    "players": [
+      {
+        "player_id": "123e4567-e89b-12d3-a456-426614174000",
+        "name": "Daniel Smith",
+        "email": "daniel.smith@thapar.edu",
+        "discord_id": "881593204615565323",
+        "rollno": "21CS1004",
+        "is_hacker": false,
+        "is_wizard": true
+      },
+      {
+        "player_id": "c56a4180-65aa-42ec-a945-5fd21dec0538",
+        "name": "Xaurye",
+        "email": "emma.verma@thapar.edu",
+        "discord_id": "xaurye",
+        "rollno": "21CS1005",
+        "is_hacker": true,
+        "is_wizard": false
+      },
+      {
+        "player_id": "f9b327a8-3c98-4f85-af63-3fbd4a6c1e9d",
+        "name": "FakeUser1",
+        "email": "fake1@thapar.edu",
+        "discord_id": "999999999999999999",
+        "rollno": "21CS1006",
+        "is_hacker": false,
+        "is_wizard": true
+      },
+      {
+        "player_id": "d5f3a1c2-4e6b-11ec-81d3-0242ac130003",
+        "name": "Ignodeus",
+        "email": "ignatius.doe@thapar.edu",
+        "discord_id": "Ignodeus",
+        "rollno": "21CS1007",
+        "is_hacker": true,
+        "is_wizard": false
+      }
+    ],
+    "team_leader_email": "daniel.smith@thapar.edu"
+  },
+  {
+    "team_code": "FACEB00C",
+    "team_name": "Green Giants",
+    "players": [
+      {
+        "player_id": "8d3e4567-e89b-12d3-a456-426614174abc",
+        "name": "UserTwo",
+        "email": "usertwo@thapar.edu",
+        "discord_id": "1244321077379989617",
+        "rollno": "21CS1008",
+        "is_hacker": false,
+        "is_wizard": true
+      },
+      {
+        "player_id": "abcd1234-ef56-7890-ab12-cd34ef567890",
+        "name": "UserThree",
+        "email": "userthree@thapar.edu",
+        "discord_id": "1272287483366735955",
+        "rollno": "21CS1009",
+        "is_hacker": true,
+        "is_wizard": false
+      },
+      {
+        "player_id": "11223344-5566-7788-99aa-bbccddeeff00",
+        "name": "FakeUser2",
+        "email": "fake2@thapar.edu",
+        "discord_id": "888888888888888888",
+        "rollno": "21CS1010",
+        "is_hacker": false,
+        "is_wizard": true
+      }
+    ],
+    "team_leader_email": "usertwo@thapar.edu"
+  }
+]

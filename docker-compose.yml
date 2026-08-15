@@ -1,0 +1,28 @@
+version: "3.8"
+
+# ek baar dekhlo cause i dont trust chatgpt
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3021:3021"
+    env_file:
+      - .env
+    # Comment out or delete if you don't want it to wait for this Mongo
+    depends_on:
+      - mongo
+
+  mongo:
+    image: mongo:5.0
+    container_name: mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    # If you don't want this MongoDB to actually run, you can stop/remove it manually
+    # Or remove this service block entirely if you're using a system-wide Mongo
+
+volumes:
+  mongo_data:
