@@ -1,9 +1,11 @@
 from logging import getLogger
+from os import getenv
 from typing import Any
 
 import aiosqlite
 import discord
 import loggers  # Ensure logging config is initialized before any loggers are used.
+from aiohttp import web
 from discord import app_commands
 from discord.ext import commands
 
@@ -37,6 +39,7 @@ class Bot(commands.Bot):
 
     # Lazy Loads every cog in the cogs directory
     async def setup_hook(self):
+        await start_web_server(self)
         await database.init_db()
         await setup_lft_db()
 
@@ -61,6 +64,31 @@ class Bot(commands.Bot):
 
     async def on_ready(self):
         logger.info("Bot is Up and ready!")
+
+
+async def start_web_server(bot: commands.Bot):
+    """Tiny HTTP server so Render treats the bot as a live web service.
+
+    Render requires a web service to bind the port in $PORT, and uptime pings
+    against these endpoints are what keep the free instance from spinning down.
+    Started before the gateway connects, so health checks pass during startup.
+    """
+
+    async def health(request: web.Request) -> web.Response:
+        status = "ready" if bot.is_ready() else "starting"
+        return web.Response(text=f"Somnium bot: {status}")
+
+    app = web.Application()
+    app.router.add_get("/", health)
+    app.router.add_get("/healthz", health)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    port = int(getenv("PORT", "10000"))  # Render injects PORT; 10000 is its default
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"Keep-alive web server listening on port {port}")
 
 
 async def setup_lft_db():

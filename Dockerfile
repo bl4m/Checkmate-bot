@@ -23,5 +23,7 @@ RUN mkdir -p /app/data \
     && chown -R bot:bot /app
 USER bot
 
-# Nothing listens on a port: this is a gateway client, not a web service.
+# Keep-alive HTTP server for Render; binds $PORT (default 10000).
+EXPOSE 10000
+
 CMD ["python", "main.py"]

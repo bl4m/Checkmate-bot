@@ -1,0 +1,28 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Deploy: Render Dashboard -> New -> Blueprint -> point at this repo,
+# then fill in the env vars marked `sync: false`.
+services:
+  - type: web
+    name: checkmate-bot
+    runtime: docker
+    repo: https://github.com/bl4m/Checkmate-bot
+    branch: main
+    plan: free
+    healthCheckPath: /healthz
+    autoDeploy: true # every push to main redeploys
+    envVars:
+      # Secrets and IDs are entered in the Render dashboard, never committed.
+      - key: DISCORD_API_TOKEN
+        sync: false
+      - key: POSTGRES_URI
+        sync: false
+      - key: BROADCAST_URI
+        sync: false
+      - key: ANNOUNCEMENT_CHANNEL
+        sync: false
+      - key: TEAM_CHANNEL
+        sync: false
+      - key: ADMIN_ROLE
+        sync: false
+      - key: IS_DEV
+        value: "false"
