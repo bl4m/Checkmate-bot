@@ -1,4 +1,4 @@
-import asyncio
+from logging import getLogger
 
 import discord
 from discord.ext import commands
@@ -7,7 +7,7 @@ from database import teams
 
 from .utils import create_failure_embed
 
-assert teams is not None, "Teams collection is None!"
+logger = getLogger(__name__)
 
 
 class ConfirmView(discord.ui.View):
@@ -34,22 +34,33 @@ class ConfirmView(discord.ui.View):
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        tasks = []
+        await interaction.response.defer()
+
+        merged = 0
 
         for a, b in self.pairs:
             players = a["players"] + b["players"]
 
-            tasks.append(
-                teams.update_one(
-                    {"team_name": a["team_name"]}, {"$set": {"players": players}}
-                )
+            # Sequential and checked: running these concurrently meant a failed
+            # merge could still be followed by the delete, dropping a whole team.
+            result = await teams.update_one(
+                {"team_name": a["team_name"]}, {"$set": {"players": players}}
             )
-            tasks.append(teams.delete_one({"team_name": b["team_name"]}))
 
-        await asyncio.gather(*tasks)
+            if not result.get("modified_count"):
+                logger.error(
+                    "Could not merge %s into %s; leaving both teams untouched.",
+                    b["team_name"],
+                    a["team_name"],
+                )
+                continue
+
+            await teams.delete_one({"team_name": b["team_name"]})
+            merged += 1
 
         self.confirmed = True
         self.disable_all_items()
-        await interaction.response.edit_message(
-            content="✅ Pairs confirmed and saved to DB.", view=self
+        await interaction.edit_original_response(
+            content=f"✅ {merged}/{len(self.pairs)} pairs confirmed and saved to DB.",
+            view=self,
         )

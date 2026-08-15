@@ -20,9 +20,17 @@ from views import TeamChannelButton
 logger = getLogger(__name__)
 CATEGORY_NAME = CATEGORY_FALLBACK
 
-banner = discord.File(
-    path.join("assets", "banner.png"), filename="banner.png"
-)
+BANNER_PATH = path.join("assets", "banner.png")
+LOGO_PATH = path.join("assets", "logo.png")
+
+
+# A discord.File closes its handle once sent, so every send needs a fresh one.
+def _banner() -> discord.File:
+    return discord.File(BANNER_PATH, filename="banner.png")
+
+
+def _logo() -> discord.File:
+    return discord.File(LOGO_PATH, filename="logo.png")
 
 
 class StartupMessages(commands.Cog):
@@ -118,8 +126,7 @@ class StartupMessages(commands.Cog):
         embed.set_thumbnail(url="attachment://logo.png")
         embed.set_footer(text="Somnium • Team coordination starts here")
 
-        logo = discord.File(path.join("assets", "logo.png"), filename="logo.png")
-        await channel.send(embed=embed, view=TeamChannelButton(), file=logo)
+        await channel.send(embed=embed, view=TeamChannelButton(), file=_logo())
 
     async def send_about_event_message(self):
         logger.info("Sending about messsage")
@@ -161,7 +168,7 @@ class StartupMessages(commands.Cog):
         )
         embed.set_image(url="attachment://banner.png")
 
-        await channel.send(embed=embed, file=banner)
+        await channel.send(embed=embed, file=_banner())
 
     async def send_rules_event_message(self):
         logger.info("sending rules message")
@@ -222,8 +229,7 @@ class StartupMessages(commands.Cog):
 
         embed.set_thumbnail(url="attachment://logo.png")
 
-        logo = discord.File(path.join("assets", "logo.png"), filename="logo.png")
-        await channel.send(embeds=[embed, embed1], file=logo)
+        await channel.send(embeds=[embed, embed1], file=_logo())
 
 
 async def setup(bot: commands.Bot):

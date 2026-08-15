@@ -2,12 +2,12 @@ from logging import getLogger
 
 from discord.ext import commands
 
+from settings import TEAM_CHANNEL
 from views import LookingForTeamView
 from views.utils import create_failure_embed
-from settings import TEAM_CHANNEL,ADMIN_ROLE
-
 
 logger = getLogger(__name__)
+
 
 class TeamFinder(commands.Cog):
     def __init__(self, bot):
@@ -15,22 +15,18 @@ class TeamFinder(commands.Cog):
 
     @commands.hybrid_command("team-finder")
     async def lft(self, ctx: commands.Context):
-        print(ctx.channel.id)
-        if ctx.channel.id != 1537917791468912730:
+        # The channel id used to be hardcoded here while TEAM_CHANNEL sat unused
+        # in .env. TEAM_CHANNEL is now the single source of truth.
+        if TEAM_CHANNEL is not None and ctx.channel.id != TEAM_CHANNEL:
             embed = create_failure_embed(
-                "You can only run this command in 🤝・find-teammates-here!",
+                "You can only run this command in the find-teammates channel!",
                 title="Permission Denied",
             )
-            await ctx.send(embed=embed)
+            await ctx.send(embed=embed, ephemeral=True)
             return
 
         view = LookingForTeamView(ctx.author.id)
         await ctx.send("Select your role:", view=view, ephemeral=True)
-
-    # @commands.hybrid_command("set-teamfinder")
-    # @commands.has_role(ADMIN_ROLE)
-    # def stf(self, ctx:commands.Context):
-
 
 
 async def setup(bot: commands.Bot):

@@ -7,7 +7,31 @@ from database import teams
 from views.utils import create_failure_embed, create_success_embed
 
 logger = getLogger(__name__)
-assert teams is not None, "Teams collection is None!"
+
+LFT_DB = "lft.db"
+MAX_TEAM_SIZE = 4
+
+
+async def _is_marked_lft(discord_id: int) -> bool:
+    async with aiosqlite.connect(LFT_DB) as db:
+        cursor = await db.execute(
+            "SELECT 1 FROM lft_users WHERE discord_id = ?", (discord_id,)
+        )
+        return await cursor.fetchone() is not None
+
+
+async def _mark_lft(discord_id: int) -> None:
+    async with aiosqlite.connect(LFT_DB) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO lft_users (discord_id) VALUES (?)", (discord_id,)
+        )
+        await db.commit()
+
+
+async def _unmark_lft(discord_id: int) -> None:
+    async with aiosqlite.connect(LFT_DB) as db:
+        await db.execute("DELETE FROM lft_users WHERE discord_id = ?", (discord_id,))
+        await db.commit()
 
 
 class LookingForTeamView(discord.ui.View):
@@ -26,20 +50,6 @@ class LookingForTeamView(discord.ui.View):
     async def select_role(
         self, interaction: discord.Interaction, select: discord.ui.Select
     ):
-        async with aiosqlite.connect("lft.db") as db:
-            cursor = await db.execute(
-                "SELECT 1 FROM lft_users WHERE discord_id = ?", (interaction.user.id,)
-            )
-            exists = await cursor.fetchone()
-
-            if exists:
-                embed = discord.Embed(
-                    color=discord.Color.red(),
-                    description="You're already marked as Looking For Team!",
-                ).set_footer(text="Contact CORE if this is a mistake!")
-                await interaction.response.send_message(embed=embed, ephemeral=True)
-                return
-
         if not isinstance(interaction.channel, discord.TextChannel):
             return
 
@@ -48,6 +58,14 @@ class LookingForTeamView(discord.ui.View):
             await interaction.response.send_message(
                 embed=embed, ephemeral=True, delete_after=10
             )
+            return
+
+        if await _is_marked_lft(interaction.user.id):
+            embed = discord.Embed(
+                color=discord.Color.red(),
+                description="You're already marked as Looking For Team!",
+            ).set_footer(text="Contact CORE if this is a mistake!")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
         self.selected_role = select.values[0]
@@ -63,7 +81,7 @@ class LookingForTeamView(discord.ui.View):
 
         if not lookers_team:
             embed = create_failure_embed(
-                "You are not registered! Please [register](https://obscura.ccstiet.com/) to look for a team! If you are registered, please contact CORE",
+                "You are not registered! Please [register](https://somnium.ccstiet.com/) to look for a team! If you are registered, please contact CORE",
                 title="User not registered",
             )
             await interaction.response.send_message(
@@ -72,11 +90,12 @@ class LookingForTeamView(discord.ui.View):
             return
 
         if len(lookers_team["players"]) > 1:
+            # This used to fall through and respond a second time.
             embed = create_failure_embed("You need to run solo to join other teams!")
             await interaction.response.send_message(
                 embed=embed, ephemeral=True, delete_after=10
             )
-            await interaction.delete_original_response()
+            return
 
         # Create embed
         embed = create_success_embed(
@@ -124,16 +143,35 @@ class LookingForTeamView(discord.ui.View):
                 )
                 return
 
+            if inviter_team["team_name"] == lookers_team["team_name"]:
+                await btn_interaction.response.send_message(
+                    embed=create_failure_embed("You are both already on the same team."),
+                    ephemeral=True,
+                    delete_after=10,
+                )
+                return
+
+            # Re-read the looker's team: somebody else may have grabbed them
+            # while this message was sitting in the channel.
+            current = await teams.find_one({"team_name": lookers_team["team_name"]})
+            if current is None:
+                await btn_interaction.response.send_message(
+                    embed=create_failure_embed("This player has already joined a team."),
+                    ephemeral=True,
+                    delete_after=10,
+                )
+                return
+
             # Count current roles
-            player_count = sum(1 for p in inviter_team["players"])
+            player_count = len(inviter_team["players"])
             hacker_count = sum(1 for p in inviter_team["players"] if p.get("is_hacker"))
             wizard_count = sum(1 for p in inviter_team["players"] if p.get("is_wizard"))
 
             # Do not allow more than 4 players
-            if player_count >= 4:
+            if player_count >= MAX_TEAM_SIZE:
                 embed = discord.Embed(
                     color=discord.Color.red(),
-                    description="Your team already has 2 hackers!",
+                    description=f"Your team already has {MAX_TEAM_SIZE} players!",
                 )
                 await btn_interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -155,12 +193,24 @@ class LookingForTeamView(discord.ui.View):
                 )
                 return
 
-            await teams.update_one(
-                {"_id": inviter_team["_id"]},
-                {"$push": {"players": {"$each": lookers_team["players"]}}},
+            # Add first, remove second. The other order loses the player outright
+            # if the write fails.
+            result = await teams.update_one(
+                {"team_name": inviter_team["team_name"]},
+                {"$push": {"players": {"$each": current["players"]}}},
             )
 
-            await teams.delete_one({"_id": lookers_team["_id"]})
+            if not result.get("modified_count"):
+                await btn_interaction.response.send_message(
+                    embed=create_failure_embed(
+                        "Could not move the player over. Please contact CORE."
+                    ),
+                    ephemeral=True,
+                )
+                return
+
+            await teams.delete_one({"team_name": current["team_name"]})
+            await _unmark_lft(self.player_id)
 
             await btn_interaction.response.send_message(
                 embed=create_success_embed(
@@ -176,16 +226,13 @@ class LookingForTeamView(discord.ui.View):
         view.add_item(accept_button)
         await interaction.channel.send(embed=embed, view=view)
 
+        # Mark before confirming, so a failed write cannot leave the player
+        # advertised but unmarked.
+        await _mark_lft(interaction.user.id)
+
         await interaction.response.send_message(
             embed=create_success_embed(
                 f"You've been marked as LFT as a {self.selected_role.capitalize()}!"
             ),
             ephemeral=True,
         )
-
-        await db.execute(
-            "INSERT INTO lft_users (discord_id) VALUES (?)", (interaction.user.id,)
-        )
-        await db.commit()
-
-        await interaction.delete_original_response()

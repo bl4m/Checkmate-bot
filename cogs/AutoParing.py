@@ -11,7 +11,6 @@ from views import ConfirmView
 logger = getLogger(__name__)
 ADMIN_ROLE = getenv("ADMIN_ROLE")
 
-assert teams is not None, "Teams collection is None!"
 assert ADMIN_ROLE is not None, "Admin role not found!"
 
 
@@ -48,8 +47,11 @@ class AutoPairing(commands.Cog):
         if ctx.interaction:
             await ctx.interaction.response.defer(ephemeral=True)
 
-        teams = [t async for t in self.db.find({}).batch_size(200)]
-        paired = await asyncio.to_thread(self.pair_teams_linear, teams)
+        # find() is an async function returning a cursor; the old Motor-style
+        # .batch_size() chain raised AttributeError on the coroutine.
+        cursor = await self.db.find({})
+        all_teams = [t async for t in cursor]
+        paired = await asyncio.to_thread(self.pair_teams_linear, all_teams)
 
         if not paired:
             return await ctx.send(

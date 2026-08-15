@@ -18,15 +18,11 @@
       "level": "WARNING",
       "formatter": "colored",
       "filename": "app.log",
-      "mode": "w",
+      "mode": "a",
       "encoding": "utf-8"
     }
   },
   "loggers": {
-    "pymongo": {
-      "level": "WARNING",
-      "propagate": false
-    },
     "socketio": {
       "level": "INFO",
       "propagate": false
@@ -49,6 +45,10 @@
     },
     "aiosqlite": {
       "level": "INFO",
+      "propagate": false
+    },
+    "asyncpg": {
+      "level": "WARNING",
       "propagate": false
     }
   },

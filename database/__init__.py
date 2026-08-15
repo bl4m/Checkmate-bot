@@ -8,6 +8,17 @@ from .database import PostgresManager
 db_manager: Optional[PostgresManager] = None
 
 
+def get_db() -> PostgresManager:
+    """Always read the pool through this.
+
+    Importing ``db_manager`` by value at module scope captures whatever it was
+    at import time (usually ``None``) and never sees a pool created later.
+    """
+    if db_manager is None:
+        raise RuntimeError("Database not initialized. Call init_db() first.")
+    return db_manager
+
+
 class PostgresTeamCursor:
     def __init__(self, rows: list[dict[str, Any]]) -> None:
         self._rows = rows
@@ -30,15 +41,14 @@ class PostgresTeamCursor:
 
 class PostgresTeamsAdapter:
     async def _get_team_rows(self, team_name: str | None = None):
-        if db_manager is None:
-            raise RuntimeError("Database not initialized.")
+        db = get_db()
 
         if team_name is None:
-            rows = await db_manager.fetch_all(
+            rows = await db.fetch_all(
                 'SELECT "Team Name" AS team_name, "Discord" AS discord FROM "Somnium" ORDER BY "Team Name", "Discord"'
             )
         else:
-            rows = await db_manager.fetch_all(
+            rows = await db.fetch_all(
                 'SELECT "Team Name" AS team_name, "Discord" AS discord FROM "Somnium" WHERE "Team Name" = $1 ORDER BY "Discord"',
                 team_name,
             )
@@ -66,6 +76,19 @@ class PostgresTeamsAdapter:
             return None
         members = [str(row["discord"]) for row in rows if row.get("discord") is not None]
         return self._rebuild_team_document(team_name, members)
+
+    async def _team_document_for_member(self, target: str):
+        rows = await get_db().fetch_all(
+            'SELECT DISTINCT "Team Name" AS team_name, "Discord" AS discord FROM "Somnium" WHERE "Discord" = $1 ORDER BY "Team Name"',
+            target,
+        )
+        if not rows:
+            return None
+
+        team_name = str(rows[0]["team_name"])
+        # Re-read the whole team, otherwise the document only contains the one
+        # member we searched for.
+        return await self._team_document_for_name(team_name)
 
     async def find(self, query: dict[str, Any] | None = None):
         query = query or {}
@@ -98,82 +121,79 @@ class PostgresTeamsAdapter:
         if "$or" in query:
             for criterion in query["$or"]:
                 if "players.discord_id" in criterion:
-                    target = str(criterion["players.discord_id"])
-                    rows = await db_manager.fetch_all(
-                        'SELECT DISTINCT "Team Name" AS team_name, "Discord" AS discord FROM "Somnium" WHERE "Discord" = $1 ORDER BY "Team Name"',
-                        target,
+                    document = await self._team_document_for_member(
+                        str(criterion["players.discord_id"])
                     )
-                    if rows:
-                        grouped: dict[str, list[str]] = {}
-                        for row in rows:
-                            grouped.setdefault(str(row["team_name"]), []).append(str(row["discord"]))
-                        team_name = next(iter(grouped))
-                        return self._rebuild_team_document(team_name, grouped[team_name])
-                if "players.discord_id" in criterion:
-                    target = str(criterion["players.discord_id"])
-                    rows = await db_manager.fetch_all(
-                        'SELECT DISTINCT "Team Name" AS team_name, "Discord" AS discord FROM "Somnium" WHERE "Discord" = $1 ORDER BY "Team Name"',
-                        target,
-                    )
-                    if rows:
-                        grouped: dict[str, list[str]] = {}
-                        for row in rows:
-                            grouped.setdefault(str(row["team_name"]), []).append(str(row["discord"]))
-                        team_name = next(iter(grouped))
-                        return self._rebuild_team_document(team_name, grouped[team_name])
+                    if document is not None:
+                        return document
 
         return None
 
     async def update_one(self, query: dict[str, Any], update: dict[str, Any]):
-        if db_manager is None:
-            raise RuntimeError("Database not initialized.")
+        db = get_db()
+
+        team_name = query.get("team_name") or query.get("_id")
+        if team_name is None:
+            return {"matched_count": 0, "modified_count": 0}
 
         if "$set" in update and "players" in update["$set"]:
-            team_name = query.get("team_name") or query.get("_id")
-            if team_name is None:
-                return {"matched_count": 0, "modified_count": 0}
             players = update["$set"]["players"]
-            await db_manager.execute('DELETE FROM "Somnium" WHERE "Team Name" = $1', str(team_name))
-            for player in players:
-                member_id = player.get("discord_id") or player.get("Discord") or player.get("discord")
-                if member_id is not None:
-                    await db_manager.execute(
-                        'INSERT INTO "Somnium" ("Team Name", "Discord") VALUES ($1, $2)',
-                        str(team_name),
-                        str(member_id),
-                    )
+            await db.execute('DELETE FROM "Somnium" WHERE "Team Name" = $1', str(team_name))
+            await self._insert_players(str(team_name), players)
             return {"matched_count": 1, "modified_count": 1}
+
+        if "$push" in update and "players" in update["$push"]:
+            push = update["$push"]["players"]
+            new_players = (
+                push["$each"] if isinstance(push, dict) and "$each" in push else [push]
+            )
+            existing = await self._team_document_for_name(str(team_name))
+            if existing is None:
+                return {"matched_count": 0, "modified_count": 0}
+            added = await self._insert_players(str(team_name), new_players)
+            return {"matched_count": 1, "modified_count": 1 if added else 0}
+
         return {"matched_count": 0, "modified_count": 0}
 
+    async def _insert_players(self, team_name: str, players: list[dict[str, Any]]) -> int:
+        db = get_db()
+        inserted = 0
+        for player in players:
+            member_id = (
+                player.get("discord_id") or player.get("Discord") or player.get("discord")
+                if isinstance(player, dict)
+                else player
+            )
+            if member_id is None:
+                continue
+            await db.execute(
+                'INSERT INTO "Somnium" ("Team Name", "Discord") VALUES ($1, $2)',
+                team_name,
+                str(member_id),
+            )
+            inserted += 1
+        return inserted
+
     async def delete_one(self, query: dict[str, Any]):
-        if db_manager is None:
-            raise RuntimeError("Database not initialized.")
+        db = get_db()
 
         team_name = query.get("team_name") or query.get("_id")
         if not team_name:
             return {"deleted_count": 0}
 
-        await db_manager.execute('DELETE FROM "Somnium" WHERE "Team Name" = $1', str(team_name))
+        await db.execute('DELETE FROM "Somnium" WHERE "Team Name" = $1', str(team_name))
         return {"deleted_count": 1}
 
     async def insert_one(self, document: dict[str, Any]):
-        if db_manager is None:
-            raise RuntimeError("Database not initialized.")
+        db = get_db()
 
         team_name = document.get("team_name") or document.get("_id")
         players = document.get("players", [])
         if team_name is None:
             return None
 
-        await db_manager.execute('DELETE FROM "Somnium" WHERE "Team Name" = $1', str(team_name))
-        for player in players:
-            member_id = player.get("discord_id") or player.get("Discord") or player.get("discord")
-            if member_id is not None:
-                await db_manager.execute(
-                    'INSERT INTO "Somnium" ("Team Name", "Discord") VALUES ($1, $2)',
-                    str(team_name),
-                    str(member_id),
-                )
+        await db.execute('DELETE FROM "Somnium" WHERE "Team Name" = $1', str(team_name))
+        await self._insert_players(str(team_name), players)
         return {"inserted_id": team_name}
 
 

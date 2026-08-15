@@ -1,34 +1,33 @@
 import asyncio
-import random
 from collections.abc import Mapping
 from logging import getLogger
-from os import getenv, path
+from os import path
 from typing import Any
 
 import discord
 from discord.ext import commands
 
-from database import db_manager
+from database import get_db
+from guild_utils import (
+    ensure_team_voice_channel,
+    get_or_create_team_role,
+    normalize_team_name,
+)
 from settings import ADMIN_ROLE, CATEGORY_NAME
-from views import TeamChannelButton
 
 logger = getLogger(__name__)
 
-KABOOM = discord.File(path.join("assets", "Kaboom.jpg"), filename="Kaboom.jpg")
+KABOOM_PATH = path.join("assets", "Kaboom.jpg")
 
-
-assert db_manager is not None, "Database not found!"
 assert ADMIN_ROLE is not None, "Admin role not found!"
 
 
 class TeamChannels(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        self._invalid_ids = []
-        self._not_in_guild = []
+        self._invalid_ids: list[str] = []
+        self._not_in_guild: list[str] = []
         self._creating = False
-
-        self.bot.add_view(TeamChannelButton())
 
     @property
     def invalid_ids(self):
@@ -100,8 +99,12 @@ class TeamChannels(commands.Cog):
 
     # Creates the voice channels and edit's their permission
     async def _create_voice_channel(self, team: str, guild: discord.Guild):
+        # These are per-run diagnostics; without clearing they grew forever.
+        self._invalid_ids.clear()
+        self._not_in_guild.clear()
+
         sql = 'SELECT "Discord" FROM "Somnium" WHERE "Team Name" = $1'
-        rows = await db_manager.fetch_all(sql, team)
+        rows = await get_db().fetch_all(sql, team)
         players = [row["Discord"] for row in rows]
 
         # Resolve members from DB
@@ -110,73 +113,11 @@ class TeamChannels(commands.Cog):
         )
         resolved_members = list(filter(None, resolved_members))
 
-        # Check if VC already exists
-        normalized_team_name = team.strip().lower().replace(" ", "-")
-        existing_channel = discord.utils.get(
-            guild.voice_channels, name=normalized_team_name
-        )
+        role = await get_or_create_team_role(guild, team)
 
-        if existing_channel:
-            # Cleanup old permissions
-            cleanup_tasks = [
-                existing_channel.set_permissions(target, overwrite=None)
-                for target in existing_channel.overwrites
-                if isinstance(target, discord.Member) and target not in resolved_members
-            ]
-            update_tasks = [
-                existing_channel.set_permissions(
-                    member,
-                    overwrite=discord.PermissionOverwrite(
-                        view_channel=True, connect=True
-                    ),
-                )
-                for member in resolved_members
-            ]
-            await asyncio.gather(*cleanup_tasks, *update_tasks)
-            return
-
-        # Build overwrites for team members
-        overwrites: Mapping[Any, discord.PermissionOverwrite] = {
-            guild.default_role: discord.PermissionOverwrite(
-                view_channel=False, connect=False
-            )
-        }
-        for member in resolved_members:
-            overwrites[member] = discord.PermissionOverwrite(
-                view_channel=True, connect=True
-            )
-
-        # Find a category with < 50 voice channels
-        def get_or_create_category_slot(
-            guild: discord.Guild, base_name: str = CATEGORY_NAME
-        ):
-            for category in guild.categories:
-                if (
-                    category.name.startswith(base_name)
-                    and len(category.voice_channels) < 50
-                ):
-                    return category
-            return None
-
-        category = get_or_create_category_slot(guild)
-
-        # If no suitable category, make a new one
-        if category is None:
-            count = sum(1 for c in guild.categories if c.name.startswith(CATEGORY_NAME))
-            category = await guild.create_category(
-                name=f"CHECKMATE VOICE CHANNELS #{count + 1}",
-                overwrites={
-                    guild.default_role: discord.PermissionOverwrite(
-                        view_channel=False, connect=False
-                    )
-                },
-            )
-
-        # Create VC
-        await guild.create_voice_channel(
-            name=normalized_team_name,
-            category=category,
-            overwrites=overwrites,
+        # This is the whole roster, so stale member overwrites can be pruned.
+        return await ensure_team_voice_channel(
+            guild, team, resolved_members, role, prune=True
         )
 
     @commands.Cog.listener()
@@ -188,7 +129,7 @@ class TeamChannels(commands.Cog):
 
         result = None
         for candidate in candidates:
-            result = await db_manager.fetch_row(
+            result = await get_db().fetch_row(
                 'SELECT "Team Name" FROM "Somnium" WHERE "Discord" = $1',
                 candidate,
             )
@@ -214,105 +155,27 @@ class TeamChannels(commands.Cog):
             )
             return
 
-        guild = self.bot.guilds[0]
+        guild = member.guild
         team_name = str(team_name).strip()
-        normalized_team_name = team_name.lower().replace(" ", "-")
 
-        role_name = f"team-{normalized_team_name}"
-        existing_role = discord.utils.get(guild.roles, name=role_name)
-        if existing_role is None:
-            colors = [
-                discord.Color.red(),
-                discord.Color.blue(),
-                discord.Color.green(),
-                discord.Color.gold(),
-                discord.Color.purple(),
-                discord.Color.orange(),
-                discord.Color.teal(),
-                discord.Color.magenta(),
-            ]
-            color = random.choice(colors)
-            existing_role = await guild.create_role(
-                name=role_name,
-                color=color,
-                reason=f"Role for {team_name} team",
-                mentionable=True,
-            )
+        role = await get_or_create_team_role(guild, team_name)
 
-        if member not in existing_role.members:
-            await member.add_roles(existing_role, reason=f"Joined team {team_name}")
+        if role is not None and role not in member.roles:
+            try:
+                await member.add_roles(role, reason=f"Joined team {team_name}")
+            except discord.HTTPException:
+                logger.exception("Could not add %s to role %s", member.id, role.name)
 
-        voice_channel = discord.utils.get(
-            guild.voice_channels, name=normalized_team_name
+        channel = discord.utils.get(
+            guild.voice_channels, name=normalize_team_name(team_name)
         )
 
-        if voice_channel is None:
+        if channel is None:
+            # No channel yet: build it from the full roster.
             await self._create_voice_channel(team_name, guild)
         else:
-            # Set permission for the user
-            overwrite = discord.PermissionOverwrite()
-            overwrite.view_channel = True
-            overwrite.connect = True
-            await voice_channel.set_permissions(member, overwrite=overwrite)
-
-    # @commands.hybrid_command(name="create-vc")
-    # @commands.has_role(ADMIN_ROLE)
-    # async def create_channels(self, ctx: commands.Context, team_name: str):
-    #     """
-    #     Just pass the entire teams collection to this
-    #     """
-
-    #     if self._creating:
-    #         return
-
-    #     if ctx.interaction:
-    #         await ctx.interaction.response.defer(ephemeral=True)
-
-    #     if not self.bot.guilds:
-    #         raise RuntimeError("Bot is not in any guild")
-
-    #     self._creating = True
-
-    #     # Waits till bot is running
-    #     await self.bot.wait_until_ready()
-
-    #     # Gets the discord server
-    #     guild = self.bot.guilds[0]
-
-    #     team: dict[str, Any] | None = await teams.find_one({"team_name": team_name})
-
-    #     if team is None:
-    #         if ctx.interaction:
-    #             await ctx.interaction.response.send_message(
-    #                 "Team name is wrong or team not registered/not found",
-    #                 ephemeral=True,
-    #                 delete_after=5,
-    #             )
-    #         else:
-    #             await ctx.reply(
-    #                 "Team name is wrong or team not found/registered",
-    #                 ephemeral=True,
-    #                 delete_after=5,
-    #             )
-    #         return
-
-    #     await self._create_voice_channel(team, guild)
-
-    #     reply_text = "Created voice channels, Here are the invalid IDs and the people who did not join this fucking discord server and made my blood boil"
-    #     invalid_id_text = "\n".join(self._invalid_ids)
-    #     not_in_guild_id_text = "\n".join(self._not_in_guild)
-
-    #     if ctx.interaction:
-    #         await ctx.interaction.followup.send(reply_text, ephemeral=True)
-    #         await ctx.interaction.followup.send(invalid_id_text, ephemeral=True)
-    #         await ctx.interaction.followup.send(not_in_guild_id_text, ephemeral=True)
-
-    #     else:
-    #         await ctx.reply(reply_text, ephemeral=True)
-    #         await ctx.author.send(invalid_id_text)
-    #         await ctx.author.send(not_in_guild_id_text)
-
-    #     self._creating = False
+            # Only this member is joining, so never prune the others.
+            await ensure_team_voice_channel(guild, team_name, [member], role)
 
     @commands.hybrid_command(name="delete_somnium_vcs")
     @commands.has_role(ADMIN_ROLE)
@@ -323,14 +186,9 @@ class TeamChannels(commands.Cog):
         guild = ctx.guild
 
         if not guild:
-            logger.exception("Bot not in any guild!")
+            logger.error("delete_somnium_vcs called outside a guild.")
             return
 
-        if not guild.categories:
-            logger.exception("The fuck, no categories found??")
-            return
-
-        await ctx.reply(file=KABOOM)
         # Filter categories that match
         target_categories = [
             category
@@ -342,16 +200,22 @@ class TeamChannels(commands.Cog):
             await ctx.reply("No matching categories found.", ephemeral=True)
             return
 
+        # A discord.File is consumed once it is sent, so build a fresh one per call.
+        await ctx.reply(file=discord.File(KABOOM_PATH, filename="Kaboom.jpg"))
+
+        deleted = 0
+
         # Loop through each category and delete its voice channels
         for category in target_categories:
             for channel in category.voice_channels:
                 try:
                     await channel.delete()
+                    deleted += 1
                     await asyncio.sleep(0.5)  # to avoid hitting rate limits
                 except discord.HTTPException as e:
                     await ctx.send(f"Failed to delete {channel.name}: {e}")
 
-        await ctx.reply("Deleted voice channels.", ephemeral=True)
+        await ctx.send(f"Deleted {deleted} voice channel(s).", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

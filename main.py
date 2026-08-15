@@ -37,6 +37,14 @@ class Bot(commands.Bot):
     # Lazy Loads every cog in the cogs directory
     async def setup_hook(self):
         await database.init_db()
+        await setup_lft_db()
+
+        # Register the persistent view exactly once. Doing this in on_ready meant
+        # re-registering it on every reconnect.
+        from views.TeamChannel import TeamChannelButton
+
+        self.add_view(TeamChannelButton())
+
         for extension in self.initial_extensions:
             try:
                 await self.load_extension(extension)
@@ -49,13 +57,9 @@ class Bot(commands.Bot):
 
         except Exception as e:
             logger.error(e)
+
     async def on_ready(self):
-        from views.TeamChannel import TeamChannelButton
-
-        self.add_view(TeamChannelButton())
-
         logger.info("Bot is Up and ready!")
-        await setup_lft_db()
 
 
 async def setup_lft_db():
@@ -68,12 +72,19 @@ async def setup_lft_db():
         await db.commit()
 
 
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True  # required to fetch member info
-intents.guilds = True
+def main():
+    intents = discord.Intents.default()
+    intents.message_content = True
+    intents.members = True  # required to fetch member info
+    intents.guilds = True
 
-bot = Bot(command_prefix="!", intents=intents, help_command=None)
+    bot = Bot(command_prefix="!", intents=intents, help_command=None)
 
-assert DISCORD_API_TOKEN is not None, "Missing Discord bot token!"
-bot.run(DISCORD_API_TOKEN)
+    if not DISCORD_API_TOKEN:
+        raise SystemExit("Missing Discord bot token! Set DISCORD_API_TOKEN in .env")
+
+    bot.run(DISCORD_API_TOKEN)
+
+
+if __name__ == "__main__":
+    main()

@@ -17,6 +17,10 @@ class StatusRotator(commands.Cog):
         ]
         self.rotate_status.start()
 
+    async def cog_unload(self):
+        # Without this the old loop keeps running after a cog reload.
+        self.rotate_status.cancel()
+
     @tasks.loop(minutes=1)
     async def rotate_status(self):
         status = random.choice(self.status_messages)

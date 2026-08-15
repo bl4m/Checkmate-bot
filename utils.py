@@ -6,6 +6,10 @@ load_dotenv()
 
 
 def get_cogs(path: str, prefix: str):
+    # These two load cleanly now, but they mutate team rows (AutoPairing merges
+    # and deletes teams; TeamFinder moves a player between teams) and the
+    # hacker/wizard counts they rely on are not stored in the Somnium table yet.
+    # Delete a name from this set to put the feature live.
     excluded = {"AutoParing.py", "TeamFinder.py"}
     files = listdir(path)
     return [
