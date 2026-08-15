@@ -65,6 +65,36 @@ class Bot(commands.Bot):
     async def on_ready(self):
         logger.info("Bot is Up and ready!")
 
+    async def on_command_error(
+        self, ctx: commands.Context, error: commands.CommandError
+    ):
+        # Commands/cogs with their own handler (e.g. test123) manage themselves.
+        if ctx.command and ctx.command.has_error_handler():
+            return
+        if ctx.cog and ctx.cog.has_error_handler():
+            return
+
+        if isinstance(error, commands.CommandNotFound):
+            return
+
+        # Permission denials used to fail silently, which looks like a dead
+        # bot. Tell the user what was missing instead.
+        if isinstance(error, (commands.CheckFailure, commands.CommandOnCooldown)):
+            try:
+                await ctx.send(f"⛔ {error}", ephemeral=True)
+            except discord.HTTPException:
+                pass
+            return
+
+        logger.error("Unhandled error in command %s", ctx.command, exc_info=error)
+        try:
+            await ctx.send(
+                "Something went wrong running that command. Please contact CORE.",
+                ephemeral=True,
+            )
+        except discord.HTTPException:
+            pass
+
 
 async def start_web_server(bot: commands.Bot):
     """Tiny HTTP server so Render treats the bot as a live web service.
