@@ -74,6 +74,7 @@ censored = [
   "kutte ki jat",
   "kuttiya",
   "loda",
+  "lauda",
   "lodu",
   "lund",
   "lund choos",
