@@ -68,7 +68,7 @@ class Bot(commands.Bot):
     async def on_command_error(
         self, ctx: commands.Context, error: commands.CommandError
     ):
-        # Commands/cogs with their own handler (e.g. test123) manage themselves.
+        # Commands/cogs with their own error handler manage themselves.
         if ctx.command and ctx.command.has_error_handler():
             return
         if ctx.cog and ctx.cog.has_error_handler():
